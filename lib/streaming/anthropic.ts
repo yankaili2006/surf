@@ -50,15 +50,24 @@ export class AnthropicComputerStreamer
   private anthropic: Anthropic;
 
   constructor(desktop: Sandbox, resolutionScaler: ResolutionScaler) {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      throw new Error("ANTHROPIC_API_KEY is not set");
+    if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
+      throw new Error("ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN is not set");
     }
 
     this.desktop = desktop;
     this.resolutionScaler = resolutionScaler;
-    this.anthropic = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY,
-    });
+
+    // Configure Anthropic client with custom baseURL if provided
+    const config: any = {
+      apiKey: process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN,
+    };
+
+    // Use custom base URL if provided (for proxies or custom endpoints)
+    if (process.env.ANTHROPIC_BASE_URL) {
+      config.baseURL = process.env.ANTHROPIC_BASE_URL;
+    }
+
+    this.anthropic = new Anthropic(config);
     this.instructions = INSTRUCTIONS;
   }
 

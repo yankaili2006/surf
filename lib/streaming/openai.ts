@@ -58,7 +58,18 @@ export class OpenAIComputerStreamer
   constructor(desktop: Sandbox, resolutionScaler: ResolutionScaler) {
     this.desktop = desktop;
     this.resolutionScaler = resolutionScaler;
-    this.openai = new OpenAI();
+
+    // Configure OpenAI client with environment variables
+    const config: any = {
+      apiKey: process.env.OPENAI_API_KEY,
+    };
+
+    // Use custom base URL if provided (for DeepSeek or other providers)
+    if (process.env.OPENAI_BASE_URL) {
+      config.baseURL = process.env.OPENAI_BASE_URL;
+    }
+
+    this.openai = new OpenAI(config);
     this.instructions = INSTRUCTIONS;
   }
 

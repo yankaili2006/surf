@@ -6,6 +6,7 @@ import {
 } from "@/lib/streaming";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/config";
 import { OpenAIComputerStreamer } from "@/lib/streaming/openai";
+import { AnthropicComputerStreamer } from "@/lib/streaming/anthropic";
 import { logError } from "@/lib/logger";
 import { ResolutionScaler } from "@/lib/streaming/resolution";
 
@@ -21,8 +22,7 @@ class StreamerFactory {
 
     switch (model) {
       case "anthropic":
-      // currently not implemented
-      /* return new AnthropicComputerStreamer(desktop, resolutionScaler); */
+        return new AnthropicComputerStreamer(desktop, resolutionScaler);
       case "openai":
       default:
         return new OpenAIComputerStreamer(desktop, resolutionScaler);
@@ -57,10 +57,16 @@ export async function POST(request: Request) {
 
   try {
     if (!activeSandboxId) {
-      const newSandbox = await Sandbox.create({
+      // Use the local desktop template ID
+      const templateId = process.env.E2B_DESKTOP_TEMPLATE_ID || 'desktop-template-000-0000-0000-000000000001';
+      const baseUrl = process.env.E2B_BASE_URL || process.env.E2B_API_URL;
+
+      const newSandbox = await Sandbox.create(templateId, {
         resolution,
         dpi: 96,
         timeoutMs: SANDBOX_TIMEOUT_MS,
+        apiKey: apiKey,
+        ...(baseUrl && { baseUrl: baseUrl }),
       });
 
       await newSandbox.stream.start();
@@ -69,7 +75,11 @@ export async function POST(request: Request) {
       vncUrl = newSandbox.stream.getUrl();
       desktop = newSandbox;
     } else {
-      desktop = await Sandbox.connect(activeSandboxId);
+      const baseUrl = process.env.E2B_BASE_URL || process.env.E2B_API_URL;
+      desktop = await Sandbox.connect(activeSandboxId, {
+        apiKey: apiKey,
+        ...(baseUrl && { baseUrl: baseUrl }),
+      });
     }
 
     if (!desktop) {

@@ -32,6 +32,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [vncUrl, setVncUrl] = useState<string | null>(null);
   const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState<number>(
     SANDBOX_TIMEOUT_MS / 1000
   );
@@ -51,6 +52,11 @@ export default function Home() {
     handleSubmit,
     onSandboxCreated,
   } = useChat();
+
+  // Fix hydration error: only render theme-dependent content after mount
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -156,10 +162,13 @@ export default function Home() {
       size="icon"
       suppressHydrationWarning
     >
-      {theme === "dark" ? (
-        <SunIcon className="h-5 w-5" suppressHydrationWarning />
+      {!mounted ? (
+        // Render a neutral placeholder during SSR to avoid hydration mismatch
+        <div className="h-5 w-5" />
+      ) : theme === "dark" ? (
+        <SunIcon className="h-5 w-5" />
       ) : (
-        <MoonIcon className="h-5 w-5" suppressHydrationWarning />
+        <MoonIcon className="h-5 w-5" />
       )}
     </Button>
   );

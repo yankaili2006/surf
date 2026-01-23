@@ -104,25 +104,28 @@ export async function POST(request: Request) {
 
         logInfo("Extracted sandbox IP:", sandboxIP, "from envdURL:", envdUrl);
 
-        // Automatically update websockify token for this sandbox (non-blocking)
-        // Fire and forget - VNC will work once token is updated
-        fetch('http://localhost:3001/api/vnc-token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'add',
-            sandboxId: activeSandboxId,
-            vmIp: sandboxIP,
-          }),
-        }).then(response => {
-          if (response.ok) {
+        // Update websockify token for this sandbox (BLOCKING - wait for completion)
+        // This ensures VNC connection works immediately when iframe loads
+        try {
+          const tokenResponse = await fetch('http://localhost:3001/api/vnc-token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'add',
+              sandboxId: activeSandboxId,
+              vmIp: sandboxIP,
+            }),
+          });
+
+          if (tokenResponse.ok) {
             logInfo("VNC token updated for sandbox:", activeSandboxId);
           } else {
-            response.text().then(text => logError("Failed to update VNC token:", text));
+            const errorText = await tokenResponse.text();
+            logError("Failed to update VNC token:", errorText);
           }
-        }).catch(error => {
+        } catch (error) {
           logError("Error updating VNC token:", error);
-        });
+        }
 
         // Use token mode for websockify (matches token config file)
         // Add password parameter to auto-login without user input

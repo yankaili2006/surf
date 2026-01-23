@@ -49,7 +49,10 @@ export function ChatProvider({ children }: ChatProviderProps) {
   const onSandboxCreatedRef = useRef<
     ((sandboxId: string, vncUrl: string) => void) | undefined
   >(undefined);
-  const [model, setModel] = useState<ComputerModel>("anthropic");
+  // Use environment variable to set default LLM provider
+  // Falls back to "openai" if not set
+  const defaultProvider = (process.env.NEXT_PUBLIC_DEFAULT_LLM_PROVIDER || "openai") as ComputerModel;
+  const [model, setModel] = useState<ComputerModel>(defaultProvider);
 
   const parseSSEEvent = (data: string): ParsedSSEEvent<typeof model> | null => {
     try {

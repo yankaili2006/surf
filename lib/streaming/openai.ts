@@ -54,6 +54,7 @@ export class OpenAIComputerStreamer
   public resolutionScaler: ResolutionScaler;
 
   private openai: OpenAI;
+  private model: string;
 
   constructor(desktop: Sandbox, resolutionScaler: ResolutionScaler) {
     this.desktop = desktop;
@@ -71,6 +72,9 @@ export class OpenAIComputerStreamer
 
     this.openai = new OpenAI(config);
     this.instructions = INSTRUCTIONS;
+
+    // Use consistent model name from environment variable
+    this.model = process.env.OPENAI_MODEL_NAME || "deepseek-chat";
   }
 
   async executeAction(
@@ -172,7 +176,7 @@ export class OpenAIComputerStreamer
       };
 
       let response = await this.openai.responses.create({
-        model: "deepseek-chat",
+        model: this.model,
         tools: [computerTool],
         input: [...(messages as ResponseInput)],
         truncation: "auto",
@@ -256,7 +260,7 @@ export class OpenAIComputerStreamer
         };
 
         response = await this.openai.responses.create({
-          model: "computer-use-preview",
+          model: this.model,
           previous_response_id: response.id,
           instructions: this.instructions,
           tools: [computerTool],

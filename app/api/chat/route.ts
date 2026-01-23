@@ -7,10 +7,35 @@ import {
 import { SANDBOX_TIMEOUT_MS } from "@/lib/config";
 import { OpenAIComputerStreamer } from "@/lib/streaming/openai";
 import { AnthropicComputerStreamer } from "@/lib/streaming/anthropic";
-import { logError, logInfo } from "@/lib/logger";
+import { logError, logInfo, logWarning } from "@/lib/logger";
 import { ResolutionScaler } from "@/lib/streaming/resolution";
+import { sandboxPool } from "@/lib/sandbox-pool";
 
 export const maxDuration = 800;
+
+// Helper function to create streamer with fallback support
+function createStreamerWithFallback(
+  primaryModel: ComputerModel,
+  desktop: Sandbox,
+  resolution: [number, number]
+): ComputerInteractionStreamerFacade {
+  try {
+    return StreamerFactory.getStreamer(primaryModel, desktop, resolution);
+  } catch (error) {
+    logWarning(`Failed to create ${primaryModel} streamer, falling back to alternative`, error);
+
+    // Fallback logic: if primary fails, try the other provider
+    const fallbackModel = primaryModel === "anthropic" ? "openai" : "anthropic";
+
+    try {
+      logInfo(`Attempting fallback to ${fallbackModel} provider`);
+      return StreamerFactory.getStreamer(fallbackModel as ComputerModel, desktop, resolution);
+    } catch (fallbackError) {
+      logError(`Fallback to ${fallbackModel} also failed`, fallbackError);
+      throw new Error(`Both ${primaryModel} and ${fallbackModel} providers failed`);
+    }
+  }
+}
 
 // Local E2B API helper
 async function createLocalSandbox(templateId: string, apiKey: string, baseUrl: string) {
@@ -83,6 +108,8 @@ export async function POST(request: Request) {
   let desktop: Sandbox | undefined;
   let activeSandboxId = sandboxId;
   let vncUrl: string | undefined;
+  let shouldReturnToPool = false;
+  let poolTemplateId: string | undefined;
 
   try {
     if (!activeSandboxId) {
@@ -150,8 +177,8 @@ export async function POST(request: Request) {
           logInfo("Skipping Desktop SDK connection (no messages to process)");
         }
       } else {
-        // For cloud E2B, use the SDK normally
-        const newSandbox = await Sandbox.create(templateId, {
+        // For cloud E2B, use the sandbox pool
+        const newSandbox = await sandboxPool.acquire(templateId, {
           resolution,
           dpi: 96,
           timeoutMs: SANDBOX_TIMEOUT_MS,
@@ -164,6 +191,10 @@ export async function POST(request: Request) {
         activeSandboxId = newSandbox.sandboxId;
         vncUrl = newSandbox.stream.getUrl();
         desktop = newSandbox;
+
+        // Mark for pool return
+        shouldReturnToPool = true;
+        poolTemplateId = templateId;
       }
     } else {
       // Connecting to existing sandbox
@@ -207,7 +238,7 @@ export async function POST(request: Request) {
     desktop.setTimeout(SANDBOX_TIMEOUT_MS);
 
     try {
-      const streamer = StreamerFactory.getStreamer(
+      const streamer = createStreamerWithFallback(
         model as ComputerModel,
         desktop,
         resolution
@@ -253,5 +284,24 @@ export async function POST(request: Request) {
   } catch (error) {
     logError("Error connecting to sandbox:", error);
     return new Response("Failed to connect to sandbox", { status: 500 });
+  } finally {
+    // Cleanup: Return sandbox to pool or close it
+    // Note: For streaming responses, the desktop is still in use after this function returns.
+    // The finally block only helps with error cases where streaming never started.
+    // For active streams, the desktop will be closed by timeout (SANDBOX_TIMEOUT_MS).
+    if (desktop && signal.aborted) {
+      // Only cleanup if request was aborted (user cancelled)
+      if (shouldReturnToPool && poolTemplateId) {
+        // Return to pool for reuse
+        await sandboxPool.release(poolTemplateId, desktop).catch((err: any) =>
+          logError('Failed to return sandbox to pool:', err)
+        );
+      } else {
+        // Close immediately (local infra or non-pooled sandbox)
+        await desktop.kill().catch((err: any) =>
+          logError('Failed to close sandbox during cleanup:', err)
+        );
+      }
+    }
   }
 }

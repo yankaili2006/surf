@@ -90,11 +90,13 @@ export async function POST(request: Request) {
 
       if (isLocalInfra) {
         // For local infrastructure, create sandbox directly via API
+        // The desktop template already has VNC running, no need for SDK setup
         logInfo("Creating sandbox via local API:", baseUrl);
         const result = await createLocalSandbox(templateId, apiKey, baseUrl);
         activeSandboxId = result.sandboxId;
 
         // VNC URL for local infrastructure (noVNC on port 6080)
+        // Extract sandbox IP from envdURL
         const noVNCHost = process.env.NEXT_PUBLIC_VNC_HOST || '100.64.0.23';
 
         // Extract IP from envdURL (format: http://10.11.0.X:49983)
@@ -104,48 +106,25 @@ export async function POST(request: Request) {
 
         logInfo("Extracted sandbox IP:", sandboxIP, "from envdURL:", envdUrl);
 
-        // Automatically update websockify token for this sandbox (non-blocking)
-        // Fire and forget - VNC will work once token is updated
-        fetch('http://localhost:3001/api/vnc-token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'add',
-            sandboxId: activeSandboxId,
-            vmIp: sandboxIP,
-          }),
-        }).then(response => {
-          if (response.ok) {
-            logInfo("VNC token updated for sandbox:", activeSandboxId);
-          } else {
-            response.text().then(text => logError("Failed to update VNC token:", text));
-          }
-        }).catch(error => {
-          logError("Error updating VNC token:", error);
-        });
-
         // Use token mode for websockify (matches token config file)
-        // Add password parameter to auto-login without user input
-        vncUrl = `http://${noVNCHost}:6080/vnc.html?path=websockify?token=${activeSandboxId}&autoconnect=true&password=e2bdesktop`;
+        vncUrl = `http://${noVNCHost}:6080/vnc.html?path=websockify?token=${activeSandboxId}&autoconnect=true`;
 
+        // For local infra, we need to handle desktop operations differently
+        // The desktop is already running, we just need the AI interaction
         logInfo("Local sandbox created:", activeSandboxId);
 
-        // Only connect Desktop SDK if we have messages to process (AI interaction needed)
-        // This saves ~9 seconds when just creating a sandbox without AI
-        if (messages && messages.length > 0) {
-          try {
-            desktop = await Sandbox.connect(activeSandboxId, {
-              apiKey: apiKey,
-              baseUrl: baseUrl,
-            });
-            logInfo("Desktop SDK connected to local sandbox");
-          } catch (error) {
-            logError("Failed to connect Desktop SDK to local sandbox:", error);
-            // Continue without desktop object - will return error later if needed
-          }
-        } else {
-          logInfo("Skipping Desktop SDK connection (no messages to process)");
-        }
+        // Return early with sandbox info - AI operations need different handling for local
+        return createStreamingResponse((async function* (): AsyncGenerator<SSEEvent<typeof model>> {
+          yield {
+            type: SSEEventType.SANDBOX_CREATED,
+            sandboxId: activeSandboxId,
+            vncUrl: vncUrl as string,
+          };
+          yield {
+            type: SSEEventType.DONE,
+            content: "Desktop sandbox created. Note: Local infrastructure mode - AI desktop interaction is limited.",
+          };
+        })());
       } else {
         // For cloud E2B, use the SDK normally
         const newSandbox = await Sandbox.create(templateId, {
@@ -164,37 +143,22 @@ export async function POST(request: Request) {
       }
     } else {
       // Connecting to existing sandbox
-      try {
+      if (isLocalInfra) {
+        // For local infra, we can't use SDK to connect
+        logInfo("Cannot connect to local sandbox via SDK - returning error");
+        return new Response(
+          JSON.stringify({
+            error: "Local infrastructure mode: AI desktop interaction requires cloud E2B",
+            sandboxId: activeSandboxId,
+          }),
+          { status: 501, headers: { 'Content-Type': 'application/json' } }
+        );
+      } else {
         desktop = await Sandbox.connect(activeSandboxId, {
           apiKey: apiKey,
           baseUrl: baseUrl,
         });
-        logInfo("Connected to existing sandbox:", activeSandboxId);
-      } catch (error) {
-        logError("Failed to connect to existing sandbox:", error);
-        return new Response(
-          JSON.stringify({
-            error: "Failed to connect to sandbox",
-            sandboxId: activeSandboxId,
-          }),
-          { status: 500, headers: { 'Content-Type': 'application/json' } }
-        );
       }
-    }
-
-    // If no messages and we just created a sandbox, return VNC URL immediately
-    if (!sandboxId && activeSandboxId && vncUrl && (!messages || messages.length === 0)) {
-      async function* stream(): AsyncGenerator<SSEEvent<typeof model>> {
-        yield {
-          type: SSEEventType.SANDBOX_CREATED,
-          sandboxId: activeSandboxId,
-          vncUrl: vncUrl as string,
-        };
-        yield {
-          type: SSEEventType.DONE,
-        };
-      }
-      return createStreamingResponse(stream());
     }
 
     if (!desktop) {
@@ -218,21 +182,7 @@ export async function POST(request: Request) {
             vncUrl: vncUrl as string,
           };
 
-          // Only call AI if user sent actual messages (not just creating sandbox)
-          if (messages && messages.length > 0) {
-            try {
-              // Manually iterate to catch errors during streaming
-              for await (const event of streamer.stream({ messages, signal })) {
-                yield event;
-              }
-            } catch (error) {
-              logError("AI streaming error (non-blocking):", error);
-              yield {
-                type: SSEEventType.ERROR,
-                content: "AI service temporarily unavailable. Sandbox is ready for manual use.",
-              };
-            }
-          }
+          yield* streamer.stream({ messages, signal });
         }
 
         return createStreamingResponse(stream());

@@ -2,8 +2,13 @@ import ansis from "ansis";
 
 export const logger = console;
 
-const stringifyArg = (arg: unknown) =>
-  typeof arg === "object" ? JSON.stringify(arg, null, 2) : String(arg);
+const stringifyArg = (arg: unknown) => {
+  if (arg instanceof Error) {
+    // Handle Error objects specially since they don't stringify well
+    return `${arg.name}: ${arg.message}${arg.stack ? '\n' + arg.stack : ''}`;
+  }
+  return typeof arg === "object" ? JSON.stringify(arg, null, 2) : String(arg);
+};
 
 export const logError = (...args: Parameters<typeof console.error>) => {
   console.error(
@@ -30,5 +35,12 @@ export const logWarning = (...args: Parameters<typeof console.warn>) => {
   console.warn(
     ansis.bgYellowBright.white(" WARNING "),
     ansis.yellowBright(args.map(stringifyArg).join(" "))
+  );
+};
+
+export const logInfo = (...args: Parameters<typeof console.info>) => {
+  console.info(
+    ansis.bgCyanBright.white(" INFO "),
+    ansis.cyanBright(args.map(stringifyArg).join(" "))
   );
 };

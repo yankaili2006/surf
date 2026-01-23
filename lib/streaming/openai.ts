@@ -172,7 +172,7 @@ export class OpenAIComputerStreamer
       };
 
       let response = await this.openai.responses.create({
-        model: "computer-use-preview",
+        model: "deepseek-chat",
         tools: [computerTool],
         input: [...(messages as ResponseInput)],
         truncation: "auto",

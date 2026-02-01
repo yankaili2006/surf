@@ -131,10 +131,14 @@ export async function POST(request: Request) {
 
         logInfo("Extracted sandbox IP:", sandboxIP, "from envdURL:", envdUrl);
 
-        // Update websockify token for this sandbox (BLOCKING - wait for completion)
-        // This ensures VNC connection works immediately when iframe loads
+        // Update websockify token for this sandbox (BLOCKING)
+        // Wait for token configuration to complete before returning VNC URL
+        // This ensures the iframe can connect immediately without needing a page refresh
+        const surfHost = process.env.SURF_HOST || 'localhost';
+        const surfPort = process.env.SURF_PORT || '3002';
+
         try {
-          const tokenResponse = await fetch('http://localhost:3001/api/vnc-token', {
+          const tokenResponse = await fetch(`http://${surfHost}:${surfPort}/api/vnc-token`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -145,13 +149,15 @@ export async function POST(request: Request) {
           });
 
           if (tokenResponse.ok) {
-            logInfo("VNC token updated for sandbox:", activeSandboxId);
+            logInfo("VNC token configured successfully:", activeSandboxId);
           } else {
             const errorText = await tokenResponse.text();
-            logError("Failed to update VNC token:", errorText);
+            logError("Failed to configure VNC token:", errorText);
+            // Continue anyway - user can refresh if needed
           }
         } catch (error) {
-          logError("Error updating VNC token:", error);
+          logError("Error configuring VNC token:", error);
+          // Continue anyway - don't block sandbox creation for token errors
         }
 
         // Use token mode for websockify (matches token config file)

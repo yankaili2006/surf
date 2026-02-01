@@ -35,3 +35,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Cgroup resource limit files (runtime)
+cpu.weight
+memory.max

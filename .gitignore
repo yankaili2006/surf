@@ -39,3 +39,10 @@ next-env.d.ts
 # Cgroup resource limit files (runtime)
 cpu.weight
 memory.max
+
+# Test artifacts and debug files
+page_content.html
+page_screenshot.png
+screenshots-fragments/
+test-results/
+test_vnc_debug.py
